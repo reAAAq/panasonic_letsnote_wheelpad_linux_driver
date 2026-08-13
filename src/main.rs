@@ -134,8 +134,11 @@ fn run(args: Args) -> Result<()> {
             Ok(n) => n,
             Err(nix::errno::Errno::EINTR) => continue,
             Err(e) => {
+                // Device vanished (suspend/hot-unplug). Exit non-zero so
+                // systemd's Restart=on-failure brings us back and we
+                // re-enumerate the touchpad on resume.
                 error!("poll error: {e}");
-                break;
+                return Err(Error::Poll { source: e });
             }
         };
 
@@ -154,11 +157,11 @@ fn run(args: Args) -> Result<()> {
         let frames = match input.poll_frames() {
             Ok(fs) => fs,
             Err(e) => {
+                // On hot-unplug / resume evdev returns ENODEV. Exit
+                // non-zero so systemd restarts us and we re-enumerate
+                // the device.
                 warn!("evdev read error: {e}");
-                // On hot-unplug evdev returns ENODEV. Log and exit so
-                // systemd restarts us. A future enhancement could
-                // re-enumerate the device.
-                break;
+                return Err(e);
             }
         };
 

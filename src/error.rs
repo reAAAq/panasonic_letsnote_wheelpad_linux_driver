@@ -54,6 +54,9 @@ pub enum Error {
 
     #[error("signal handling setup failed: {source}")]
     Signal { source: nix::errno::Errno },
+
+    #[error("poll failed: {source}")]
+    Poll { source: nix::errno::Errno },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
