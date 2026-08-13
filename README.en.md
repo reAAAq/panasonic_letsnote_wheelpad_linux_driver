@@ -1,6 +1,7 @@
 # letsnote-wheelpad
 
 > 中文版：见 [README.md](README.md)。
+> Based on the original [Nerahikada/letsnote-wheelpad](https://github.com/Nerahikada/letsnote-wheelpad).
 
 A userland Linux daemon that reproduces the **Panasonic Let's Note "WheelPad"** circular touchpad scrolling behaviour. Draw a slow circle in the outer ring of your touchpad to scroll vertically — just like on Windows.
 
@@ -28,10 +29,7 @@ systemctl --user enable --now letsnote-wheelpad.service
 
 ### Arch
 
-```sh
-yay -S letsnote-wheelpad      # AUR
-systemctl --user enable --now letsnote-wheelpad.service
-```
+No AUR package yet — install from source, see "From source" below.
 
 ### From source
 
@@ -91,10 +89,16 @@ journalctl --user -u letsnote-wheelpad -f
 
 If scrolling feels too fast or too slow, adjust `scroll.sensitivity` in the config (-2..+2). The daemon accumulates chord-angle deltas incrementally, so a stationary finger produces no scroll and tick count tracks the actual arc swept (see DECISIONS.md D-021-followup).
 
+## Tested devices
+
+| Model | Touchpad | Status |
+| --- | --- | --- |
+| Panasonic Let's Note CF-SV1 | Synaptics TM3562-003 | ✅ Tested |
+| Other Let's Note models | — | ⏳ To be tested |
+
 ## Known issues / non-goals
 
 - **`WheelUnderCursor` is not configurable.** On Wayland the compositor routes input to the focused surface; there's no userland override.
-- **Only the Synaptics TM3562-3 family is tested.** Other touchpads may work with `device_name_regex` overrides, but no compatibility promises.
 - **Excel arrow-key fallback is gone.** Modern Excel routes horizontal wheel events natively; we don't need the Windows hack.
 - **No coasting/kinetic scrolling.** Matches the Windows WheelPad behaviour; xf86 has it but we don't.
 
@@ -110,6 +114,7 @@ MIT. See [LICENSE](LICENSE).
 
 ## Acknowledgements
 
+- [Nerahikada/letsnote-wheelpad](https://github.com/Nerahikada/letsnote-wheelpad), the original project this is based on.
 - Panasonic for the original WheelPad design, which this ports.
 - The X.Org `xf86-input-synaptics` project for the angle-of-point-about-a-center reference implementation we compared against during reverse engineering.
 - Peter Hutterer for the [2015 libinput discussion](https://gitlab.freedesktop.org/libinput/libinput/-/issues/) that explained why this had to be a daemon and not a libinput patch.

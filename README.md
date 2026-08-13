@@ -1,6 +1,7 @@
 # letsnote-wheelpad
 
 > English version: see [README.en.md](README.en.md).
+> 本项目基于原项目 [Nerahikada/letsnote-wheelpad](https://github.com/Nerahikada/letsnote-wheelpad) 开发。
 
 一个用户态 Linux 守护进程，用于复现松下 Let's Note「WheelPad」的圆形触摸板滚动行为。在触摸板外圈缓慢画圆即可垂直滚动——和 Windows 上一样。
 
@@ -28,10 +29,7 @@ systemctl --user enable --now letsnote-wheelpad.service
 
 ### Arch
 
-```sh
-yay -S letsnote-wheelpad      # AUR
-systemctl --user enable --now letsnote-wheelpad.service
-```
+暂未提供 AUR 包，目前仅支持源码安装，请参见下方「从源码安装」。
 
 ### 从源码安装
 
@@ -91,10 +89,16 @@ journalctl --user -u letsnote-wheelpad -f
 
 如果觉得滚动太快或太慢，可在配置中调整 `scroll.sensitivity`（-2..+2）。守护进程以增量方式累积弦角增量，因此手指静止时不会滚动，滚动量与实际扫过的弧度成正比（参见 DECISIONS.md D-021-followup）。
 
+## 测试设备
+
+| 机型 | 触摸板 | 状态 |
+| --- | --- | --- |
+| Panasonic Let's Note CF-SV1 | Synaptics TM3562-003 | ✅ 已测试 |
+| 其它 Let's Note 机型 | — | ⏳ 待测试 |
+
 ## 已知问题 / 非目标
 
 - **`WheelUnderCursor` 不可配置。** 在 Wayland 上，合成器将输入路由到焦点表面；没有用户态覆盖的办法。
-- **仅测试过 Synaptics TM3562-3 系列。** 其他触摸板可能通过 `device_name_regex` 覆盖使用，但不作兼容性承诺。
 - **Excel 方向键回退已移除。** 现代 Excel 原生支持水平滚轮事件；不再需要 Windows 的 hack。
 - **无惯性/动能滚动。** 与 Windows WheelPad 行为一致；xf86 有但这里没有。
 
@@ -110,6 +114,7 @@ MIT。参见 [LICENSE](LICENSE)。
 
 ## 致谢
 
+- [Nerahikada/letsnote-wheelpad](https://github.com/Nerahikada/letsnote-wheelpad) —— 本项目所基于的原项目。
 - Panasonic 提供了本项目所移植的原始 WheelPad 设计。
 - X.Org `xf86-input-synaptics` 项目提供了逆向工程时对照的「绕中心点角度」参考实现。
 - Peter Hutterer 的 [2015 libinput 讨论](https://gitlab.freedesktop.org/libinput/libinput/-/issues/) 解释了为什么这必须是一个守护进程而不是 libinput 补丁。
