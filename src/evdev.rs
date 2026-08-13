@@ -220,23 +220,24 @@ impl InputDevice {
 
     fn assemble_frame(&mut self) -> TouchFrame {
         // Lowest-numbered active slot wins (D-012). "Active" = tracking_id != -1.
-        let chosen = self
-            .slots
-            .iter()
-            .enumerate()
-            .find(|(_, s)| s.tracking_id != -1);
+        let active: Vec<&SlotState> = self.slots.iter().filter(|s| s.tracking_id != -1).collect();
+        let chosen = active.first();
+        let finger_count = active.len() as u8;
         match (self.contact, chosen) {
-            (true, Some((_, s))) => TouchFrame {
+            (true, Some(s)) => TouchFrame {
                 contact: true,
                 pos: Some(TouchSample { x: s.x, y: s.y }),
+                finger_count,
             },
             (true, None) => TouchFrame {
                 contact: true,
                 pos: None,
+                finger_count: 0,
             },
             (false, _) => TouchFrame {
                 contact: false,
                 pos: None,
+                finger_count: 0,
             },
         }
     }

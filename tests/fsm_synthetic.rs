@@ -14,6 +14,7 @@ fn lift() -> TouchFrame {
     TouchFrame {
         contact: false,
         pos: None,
+        finger_count: 0,
     }
 }
 
@@ -21,6 +22,7 @@ fn touch(x: i32, y: i32) -> TouchFrame {
     TouchFrame {
         contact: true,
         pos: Some(TouchSample { x, y }),
+        finger_count: 1,
     }
 }
 
@@ -150,7 +152,9 @@ fn scrolling_to_debounce_on_lift() {
     drive(&mut fsm, &mut det, &scroll, &[start, mid]);
     assert!(matches!(fsm.state(), FsmState::Scrolling));
 
-    drive(&mut fsm, &mut det, &scroll, &[lift()]);
+    // A real lift needs two consecutive contact=false frames; a single
+    // BTN_TOUCH glitch is ignored.
+    drive(&mut fsm, &mut det, &scroll, &[lift(), lift()]);
     assert!(matches!(fsm.state(), FsmState::Debounce));
 }
 
@@ -189,7 +193,7 @@ fn debounce_to_idle_on_next_frame_no_timer() {
     let mid_y = 500 + (220.0 * theta.sin()).round() as i32;
     let mid = touch(mid_x, mid_y);
 
-    drive(&mut fsm, &mut det, &scroll, &[start, mid, lift()]);
+    drive(&mut fsm, &mut det, &scroll, &[start, mid, lift(), lift()]);
     assert!(matches!(fsm.state(), FsmState::Debounce));
 
     drive(&mut fsm, &mut det, &scroll, &[lift()]);
@@ -212,7 +216,7 @@ fn debounce_to_idle_even_if_finger_back_down() {
     let mid_y = 500 + (220.0 * theta.sin()).round() as i32;
     let mid = touch(mid_x, mid_y);
 
-    drive(&mut fsm, &mut det, &scroll, &[start, mid, lift()]);
+    drive(&mut fsm, &mut det, &scroll, &[start, mid, lift(), lift()]);
     assert!(matches!(fsm.state(), FsmState::Debounce));
 
     drive(&mut fsm, &mut det, &scroll, &[touch(720, 500)]);
@@ -312,11 +316,89 @@ fn scrolling_survives_position_gap() {
     let gap = TouchFrame {
         contact: true,
         pos: None,
+        finger_count: 0,
     };
     drive(&mut fsm, &mut det, &scroll, &[gap]);
     assert!(
         matches!(fsm.state(), FsmState::Scrolling),
         "contact=true with pos=None must stay Scrolling, got {:?}",
+        fsm.state()
+    );
+}
+
+#[test]
+fn single_contact_glitch_does_not_exit_scrolling() {
+    // A single contact=false frame (BTN_TOUCH glitch during fast motion)
+    // must not exit Scrolling; only consecutive false frames lift.
+    let mut fsm = Fsm::new(500, 500);
+    let mut det = CircularDetector::new();
+    let scroll = default_scroll();
+
+    let start = touch(720, 500);
+    let theta = PI / 8.0;
+    let mid = touch(
+        500 + (220.0 * theta.cos()).round() as i32,
+        500 + (220.0 * theta.sin()).round() as i32,
+    );
+    drive(&mut fsm, &mut det, &scroll, &[start, mid]);
+    assert!(matches!(fsm.state(), FsmState::Scrolling));
+
+    drive(&mut fsm, &mut det, &scroll, &[lift()]);
+    assert!(
+        matches!(fsm.state(), FsmState::Scrolling),
+        "single contact=false frame must stay Scrolling, got {:?}",
+        fsm.state()
+    );
+
+    // Contact resumes — still Scrolling.
+    drive(&mut fsm, &mut det, &scroll, &[mid]);
+    assert!(matches!(fsm.state(), FsmState::Scrolling));
+}
+
+#[test]
+fn second_finger_exits_scrolling() {
+    // When a second finger lands mid-scroll, hand the touch back to
+    // libinput: leave Scrolling (via Debounce) and stop suppressing.
+    let mut fsm = Fsm::new(500, 500);
+    let mut det = CircularDetector::new();
+    let scroll = default_scroll();
+
+    let start = touch(720, 500);
+    let theta = PI / 8.0;
+    let mid_x = 500 + (220.0 * theta.cos()).round() as i32;
+    let mid_y = 500 + (220.0 * theta.sin()).round() as i32;
+    drive(&mut fsm, &mut det, &scroll, &[start, touch(mid_x, mid_y)]);
+    assert!(matches!(fsm.state(), FsmState::Scrolling));
+
+    let two = TouchFrame {
+        contact: true,
+        pos: Some(TouchSample { x: mid_x, y: mid_y }),
+        finger_count: 2,
+    };
+    drive(&mut fsm, &mut det, &scroll, &[two]);
+    assert!(
+        !matches!(fsm.state(), FsmState::Scrolling),
+        "a second finger must exit Scrolling, got {:?}",
+        fsm.state()
+    );
+}
+
+#[test]
+fn two_finger_touch_does_not_engage() {
+    // A two-finger touch never engages circular scrolling.
+    let mut fsm = Fsm::new(500, 500);
+    let mut det = CircularDetector::new();
+    let scroll = default_scroll();
+
+    let two = TouchFrame {
+        contact: true,
+        pos: Some(TouchSample { x: 720, y: 500 }),
+        finger_count: 2,
+    };
+    drive(&mut fsm, &mut det, &scroll, &[two]);
+    assert!(
+        matches!(fsm.state(), FsmState::Idle),
+        "two-finger touch must stay Idle, got {:?}",
         fsm.state()
     );
 }
