@@ -13,11 +13,6 @@ use crate::detector::{
 /// enough that a resting finger unfreezes the cursor promptly.
 const STATIONARY_EXIT_FRAMES: u32 = 40;
 
-/// Consecutive Scrolling frames with contact=false before we treat it as
-/// a real lift. A single BTN_TOUCH glitch during fast motion no longer
-/// drops us out of scroll mode.
-const CONTACT_LOST_EXIT_FRAMES: u32 = 2;
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FsmState {
     Idle,
@@ -69,10 +64,6 @@ pub struct Fsm {
     /// dead band. Exceeding [`STATIONARY_EXIT_FRAMES`] drops us back to
     /// Moving so the cursor unfreezes without waiting for a lift.
     stationary_frames: u32,
-    /// Consecutive Scrolling frames in which contact was reported false.
-    /// A single BTN_TOUCH glitch is ignored; exceeding
-    /// [`CONTACT_LOST_EXIT_FRAMES`] is treated as a real lift.
-    contact_lost_frames: u32,
 }
 
 impl Fsm {
@@ -82,7 +73,6 @@ impl Fsm {
             center_x,
             center_y,
             stationary_frames: 0,
-            contact_lost_frames: 0,
         }
     }
 
@@ -124,7 +114,6 @@ impl Fsm {
                 FsmState::Idle
             };
             self.stationary_frames = 0;
-            self.contact_lost_frames = 0;
             return Action::None;
         }
 
@@ -190,7 +179,6 @@ impl Fsm {
                         // forwarding suppression is keyed off state.
                         detector.on_gesture_start();
                         self.stationary_frames = 0;
-                        self.contact_lost_frames = 0;
                         self.state = FsmState::Scrolling;
                         // Feed the engaging sample so the first tick can
                         // emit on this very frame if the gesture is fast
@@ -212,24 +200,19 @@ impl Fsm {
 
             // ---------- Scrolling (state 4) ----------
             (FsmState::Scrolling, false, _) => {
-                // Contact lost. A single BTN_TOUCH glitch is ignored;
-                // only after CONTACT_LOST_EXIT_FRAMES consecutive false
-                // frames do we treat it as a real lift.
-                self.contact_lost_frames += 1;
-                if self.contact_lost_frames >= CONTACT_LOST_EXIT_FRAMES {
-                    self.state = FsmState::Debounce;
-                }
+                // Lift → Debounce. State change alone is enough for the
+                // passthrough runtime to resume forwarding the lift
+                // events to the virtual touchpad.
+                self.state = FsmState::Debounce;
                 Action::None
             }
             (FsmState::Scrolling, true, None) => {
                 // Finger still down but the slot position is momentarily
                 // missing (MT protocol race) — stay Scrolling; dropping
                 // out here made the daemon exit scroll mode mid-gesture.
-                self.contact_lost_frames = 0;
                 Action::None
             }
             (FsmState::Scrolling, true, Some(s)) => {
-                self.contact_lost_frames = 0;
                 if detector.push_if_moved(s) {
                     self.stationary_frames = 0;
                 } else {
@@ -275,7 +258,6 @@ impl Fsm {
     pub fn force_idle(&mut self, detector: &mut CircularDetector) {
         self.state = FsmState::Idle;
         self.stationary_frames = 0;
-        self.contact_lost_frames = 0;
         detector.on_gesture_start();
     }
 }
