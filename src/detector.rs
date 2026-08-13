@@ -6,6 +6,7 @@
 // for why re-summing the whole window on every frame was a
 // scrolling-correctness bug.
 
+use std::collections::VecDeque;
 use std::f64::consts::PI;
 
 const PI2: f64 = 2.0 * PI;
@@ -15,10 +16,23 @@ const PI2: f64 = 2.0 * PI;
 /// follows the finger for a shorter arc before engagement — less of a
 /// "cursor hop" the moment scrolling kicks in.
 pub const TRIGGER_ANGLE: f64 = PI / 18.0;
-pub const NOISE_REJECT_ANGLE: f64 = PI / 4.0;
+
+/// Maximum chord-direction change we accept as a genuine part of a circle.
+/// 20° = π/9. Normal circling changes direction by only a few degrees per
+/// frame (the per-frame sweep); anything larger is a finger jitter or a
+/// direction reversal, which we drop. The original π/4 (45°) let a
+/// 20–40° jitter through, and after sensitivity weighting that flipped the
+/// accumulator sign — producing a spurious reverse tick mid-scroll.
+pub const NOISE_REJECT_ANGLE: f64 = PI / 9.0;
 pub const ZONE_RADIANS: f64 = PI / 8.0;
 pub const SAMPLE_DEADBAND_SQ: i64 = 400;
 pub const SENSITIVITY_TABLE: [i32; 5] = [10, 14, 20, 28, 40];
+
+/// Number of recent chord deltas averaged before accumulation. Averaging
+/// restores the noise dilution the original whole-history window had: a
+/// single opposite-sign jitter gets divided by the window instead of being
+/// multiplied straight into the accumulator by the sensitivity table.
+const DELTA_WINDOW_SIZE: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TouchSample {
@@ -36,6 +50,9 @@ pub struct CircularDetector {
     /// Delta produced by the most recent `push_if_moved` call, consumed
     /// by the next `step`. `None` means "no new movement this frame".
     pending_delta: Option<f64>,
+    /// Recent accepted chord deltas (newest first), averaged in `step`
+    /// to dilute single-frame jitter.
+    delta_window: VecDeque<f64>,
     accumulator: f64,
 }
 
@@ -51,6 +68,7 @@ impl CircularDetector {
             last_stored: None,
             last_angle: None,
             pending_delta: None,
+            delta_window: VecDeque::with_capacity(DELTA_WINDOW_SIZE),
             accumulator: 0.0,
         }
     }
@@ -59,6 +77,7 @@ impl CircularDetector {
         self.last_stored = None;
         self.last_angle = None;
         self.pending_delta = None;
+        self.delta_window.clear();
         self.accumulator = 0.0;
     }
 
@@ -108,14 +127,23 @@ impl CircularDetector {
     pub fn step(&mut self, scroll_speed_adjust: i32) -> i32 {
         if let Some(d) = self.pending_delta.take() {
             if d.abs() <= NOISE_REJECT_ANGLE {
+                // Accept: push into the averaging window and accumulate
+                // the window mean, so a single opposite-sign jitter is
+                // diluted rather than multiplied straight in.
+                if self.delta_window.len() == DELTA_WINDOW_SIZE {
+                    self.delta_window.pop_back();
+                }
+                self.delta_window.push_front(d);
+                let avg = self.delta_window.iter().sum::<f64>() / self.delta_window.len() as f64;
                 let idx = (scroll_speed_adjust.clamp(-2, 2) + 2) as usize;
                 let sensitivity = SENSITIVITY_TABLE[idx] as f64;
-                self.accumulator += sensitivity * d;
+                self.accumulator += sensitivity * avg;
             }
-            // If |d| > π/4 we treat it as noise and drop the delta.
-            // `last_angle` has already been advanced so a genuine
-            // direction change (e.g. reversing the circle) re-baselines
-            // cleanly instead of being rejected forever.
+            // If |d| > NOISE_REJECT_ANGLE we treat it as noise and drop
+            // it (nothing accumulates this frame). `last_angle` has
+            // already been advanced so a genuine direction change (e.g.
+            // reversing the circle) re-baselines cleanly instead of being
+            // rejected forever.
         }
 
         // WHILE-LOOP DRAIN — Linux deviation from Windows. See
