@@ -10,7 +10,11 @@ use std::f64::consts::PI;
 
 const PI2: f64 = 2.0 * PI;
 
-pub const TRIGGER_ANGLE: f64 = PI / 12.0;
+/// Minimum centre-angle sweep to engage scrolling (Moving → Scrolling).
+/// 10° = π/18. The original port used π/12 (15°); reduced so the cursor
+/// follows the finger for a shorter arc before engagement — less of a
+/// "cursor hop" the moment scrolling kicks in.
+pub const TRIGGER_ANGLE: f64 = PI / 18.0;
 pub const NOISE_REJECT_ANGLE: f64 = PI / 4.0;
 pub const ZONE_RADIANS: f64 = PI / 8.0;
 pub const SAMPLE_DEADBAND_SQ: i64 = 400;

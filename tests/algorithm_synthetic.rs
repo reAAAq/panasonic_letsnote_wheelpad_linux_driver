@@ -164,7 +164,7 @@ fn engagement_swept_angle_is_signed() {
 }
 
 #[test]
-fn engagement_threshold_pi_over_12() {
+fn engagement_threshold_around_trigger() {
     // Use r = 5000 instead of 200 so i32 rounding error
     // (arctan(0.5 / r)) is well below the ±0.001 rad margin we use to
     // straddle the trigger. At r = 200 the rounding error was ~0.0025
@@ -173,7 +173,7 @@ fn engagement_threshold_pi_over_12() {
     const R: f64 = 5000.0;
     let start = TouchSample { x: R as i32, y: 0 };
 
-    // Just past π/12 (15°) → above trigger.
+    // Just past the trigger angle (10°) → above trigger.
     let theta = TRIGGER_ANGLE + 0.001;
     let end_above = TouchSample {
         x: (R * theta.cos()).round() as i32,
@@ -181,7 +181,7 @@ fn engagement_threshold_pi_over_12() {
     };
     assert!(engagement_swept_angle(0, 0, start, end_above).abs() > TRIGGER_ANGLE);
 
-    // Just shy of π/12 → below trigger.
+    // Just shy of the trigger angle → below trigger.
     let theta = TRIGGER_ANGLE - 0.001;
     let end_below = TouchSample {
         x: (R * theta.cos()).round() as i32,

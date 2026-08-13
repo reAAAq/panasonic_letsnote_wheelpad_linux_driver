@@ -115,17 +115,17 @@ fn moving_to_contact_on_slip_back_into_dead_zone() {
 
 #[test]
 fn moving_to_scrolling_on_swept_angle_past_trigger() {
-    // Sweep > π/12 from engage_start while staying outside the radial
-    // gate → Scrolling. With the passthrough architecture there is no
-    // longer a Grab action to observe; the state transition is the
-    // signal the runtime keys off.
+    // Sweep past the trigger angle (10°) from engage_start while staying
+    // outside the radial gate → Scrolling. With the passthrough
+    // architecture there is no longer a Grab action to observe; the
+    // state transition is the signal the runtime keys off.
     let mut fsm = Fsm::new(500, 500);
     let mut det = CircularDetector::new();
     let scroll = default_scroll();
 
     // engage_start at angle 0, r=220
     let start = touch(720, 500);
-    // sweep to angle π/8 (= 22.5°, > π/12 = 15°), r=220
+    // sweep to angle π/8 (= 22.5°, > trigger 10°), r=220
     let theta = PI / 8.0;
     let end_x = 500 + (220.0 * theta.cos()).round() as i32;
     let end_y = 500 + (220.0 * theta.sin()).round() as i32;
