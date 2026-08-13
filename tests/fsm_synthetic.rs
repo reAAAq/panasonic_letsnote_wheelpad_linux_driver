@@ -290,3 +290,33 @@ fn stationary_exit_does_not_trip_during_continuous_circle() {
         fsm.state()
     );
 }
+
+#[test]
+fn scrolling_survives_position_gap() {
+    // MT protocol race: a frame with contact=true but pos=None (slot
+    // tracking id momentarily missing) must NOT exit Scrolling — the
+    // finger is still down.
+    let mut fsm = Fsm::new(500, 500);
+    let mut det = CircularDetector::new();
+    let scroll = default_scroll();
+
+    let start = touch(720, 500);
+    let theta = PI / 8.0;
+    let mid = touch(
+        500 + (220.0 * theta.cos()).round() as i32,
+        500 + (220.0 * theta.sin()).round() as i32,
+    );
+    drive(&mut fsm, &mut det, &scroll, &[start, mid]);
+    assert!(matches!(fsm.state(), FsmState::Scrolling));
+
+    let gap = TouchFrame {
+        contact: true,
+        pos: None,
+    };
+    drive(&mut fsm, &mut det, &scroll, &[gap]);
+    assert!(
+        matches!(fsm.state(), FsmState::Scrolling),
+        "contact=true with pos=None must stay Scrolling, got {:?}",
+        fsm.state()
+    );
+}

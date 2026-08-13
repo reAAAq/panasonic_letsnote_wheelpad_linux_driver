@@ -9,10 +9,9 @@ use crate::detector::{
 
 /// Consecutive Scrolling frames in which the finger stayed inside the
 /// detector's dead band before we drop back to Moving. At ~100 Hz this
-/// is roughly 250 ms — long enough to never trip during a slow circle
-/// (the dead band re-accepts a sample every few frames there), short
-/// enough that a resting finger unfreezes the cursor almost immediately.
-const STATIONARY_EXIT_FRAMES: u32 = 25;
+/// is roughly 400 ms — long enough not to trip during a slow slide, short
+/// enough that a resting finger unfreezes the cursor promptly.
+const STATIONARY_EXIT_FRAMES: u32 = 40;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FsmState {
@@ -137,9 +136,15 @@ impl Fsm {
             }
 
             // ---------- Moving (state 3) — engagement candidate ----------
-            (FsmState::Moving { .. }, false, _) | (FsmState::Moving { .. }, true, None) => {
+            (FsmState::Moving { .. }, false, _) => {
                 // Lift before engagement → Idle.
                 self.state = FsmState::Idle;
+                Action::None
+            }
+            (FsmState::Moving { .. }, true, None) => {
+                // Finger still down but the slot position is momentarily
+                // missing (MT protocol race) — keep Moving rather than
+                // treating it as a lift.
                 Action::None
             }
             (FsmState::Moving { engage_start }, true, Some(s)) => {
@@ -177,11 +182,17 @@ impl Fsm {
             }
 
             // ---------- Scrolling (state 4) ----------
-            (FsmState::Scrolling, false, _) | (FsmState::Scrolling, true, None) => {
+            (FsmState::Scrolling, false, _) => {
                 // Lift → Debounce. State change alone is enough for the
                 // passthrough runtime to resume forwarding the lift
                 // events to the virtual touchpad.
                 self.state = FsmState::Debounce;
+                Action::None
+            }
+            (FsmState::Scrolling, true, None) => {
+                // Finger still down but the slot position is momentarily
+                // missing (MT protocol race) — stay Scrolling; dropping
+                // out here made the daemon exit scroll mode mid-gesture.
                 Action::None
             }
             (FsmState::Scrolling, true, Some(s)) => {
