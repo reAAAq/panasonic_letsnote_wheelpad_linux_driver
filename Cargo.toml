@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.85"
 description = "Userland daemon that ports Panasonic Let's Note WheelPad (circular touchpad scroll) to Linux"
 license = "MIT"
-repository = "https://github.com/Nerahikada/letsnote-wheelpad"
+repository = "https://github.com/reAAAq/panasonic_letsnote_wheelpad_linux_driver"
 readme = "README.md"
 keywords = ["touchpad", "uinput", "letsnote", "wheelpad", "scroll"]
 categories = ["hardware-support", "command-line-utilities"]
@@ -37,8 +37,8 @@ panic = "abort"
 # cargo-deb metadata (Ubuntu / Debian package)
 # ---------------------------------------------------------------------------
 [package.metadata.deb]
-maintainer = "ねらひかだ <hkshirorom@yahoo.co.jp>"
-copyright = "2026, ねらひかだ"
+maintainer = "wangguanzhiabcd <wangguanzhiabcd@126.com>"
+copyright = "2026, wangguanzhiabcd"
 license-file = ["LICENSE", "0"]
 extended-description = """\
 Userland daemon that reproduces the Panasonic Let's Note WheelPad circular
@@ -55,7 +55,7 @@ assets = [
     ["packaging/systemd/letsnote-wheelpad.service", "usr/lib/systemd/user/", "644"],
     ["packaging/modules-load/letsnote-wheelpad.conf", "usr/lib/modules-load.d/", "644"],
     ["README.md", "usr/share/doc/letsnote-wheelpad/README.md", "644"],
-    ["README.ja.md", "usr/share/doc/letsnote-wheelpad/README.ja.md", "644"],
+    ["README.en.md", "usr/share/doc/letsnote-wheelpad/README.en.md", "644"],
     ["LICENSE", "usr/share/doc/letsnote-wheelpad/LICENSE", "644"],
 ]
 
@@ -71,7 +71,7 @@ assets = [
     { source = "packaging/systemd/letsnote-wheelpad.service", dest = "/usr/lib/systemd/user/letsnote-wheelpad.service", mode = "644" },
     { source = "packaging/modules-load/letsnote-wheelpad.conf", dest = "/usr/lib/modules-load.d/letsnote-wheelpad.conf", mode = "644" },
     { source = "README.md", dest = "/usr/share/doc/letsnote-wheelpad/README.md", mode = "644", doc = true },
-    { source = "README.ja.md", dest = "/usr/share/doc/letsnote-wheelpad/README.ja.md", mode = "644", doc = true },
+    { source = "README.en.md", dest = "/usr/share/doc/letsnote-wheelpad/README.en.md", mode = "644", doc = true },
     { source = "LICENSE", dest = "/usr/share/doc/letsnote-wheelpad/LICENSE", mode = "644", doc = true },
 ]
 post_install_script = """

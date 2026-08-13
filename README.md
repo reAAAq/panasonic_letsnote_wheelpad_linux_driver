@@ -1,16 +1,16 @@
 # letsnote-wheelpad
 
-> 日本語版は [README.ja.md](README.ja.md) を参照してください。
+> English version: see [README.en.md](README.en.md).
 
-A userland Linux daemon that reproduces the **Panasonic Let's Note "WheelPad"** circular touchpad scrolling behaviour. Draw a slow circle in the outer ring of your touchpad to scroll vertically — just like on Windows.
+一个用户态 Linux 守护进程，用于复现松下 Let's Note「WheelPad」的圆形触摸板滚动行为。在触摸板外圈缓慢画圆即可垂直滚动——和 Windows 上一样。
 
-Works on Wayland and X11 by reading evdev events directly from the physical Synaptics touchpad and emitting wheel events through a `uinput` virtual device. The physical pad keeps driving the cursor as normal; this daemon contributes scroll only.
+通过直接读取物理 Synaptics 触摸板的 evdev 事件，并通过 `uinput` 虚拟设备发出滚轮事件，因此在 Wayland 和 X11 上都能工作。物理触摸板照常驱动光标；本守护进程只额外提供滚动。
 
-## Why this exists
+## 为什么需要它
 
-`libinput` rejected adding circular scrolling to the Wayland-era stack (see Peter Hutterer's 2015 reasoning). So if you want your Let's Note's circular scroll to work on Linux, the only path is a userland daemon that reads the touchpad through evdev and emits wheel events through a separate virtual device. That's what this is.
+`libinput` 拒绝在 Wayland 时代加入圆形滚动（参见 Peter Hutterer 2015 年的讨论）。所以如果你想让 Let's Note 的圆形滚动在 Linux 上工作，唯一的办法就是一个用户态守护进程：通过 evdev 读取触摸板，并通过单独的虚拟设备发出滚轮事件。本项目正是如此。
 
-## Install
+## 安装
 
 ### Ubuntu / Debian
 
@@ -33,10 +33,10 @@ yay -S letsnote-wheelpad      # AUR
 systemctl --user enable --now letsnote-wheelpad.service
 ```
 
-### From source
+### 从源码安装
 
 ```sh
-git clone https://github.com/Nerahikada/letsnote-wheelpad
+git clone https://github.com/reAAAq/panasonic_letsnote_wheelpad_linux_driver
 cd letsnote-wheelpad
 cargo build --release
 sudo install -Dm755 target/release/letsnote-wheelpad /usr/bin/letsnote-wheelpad
@@ -49,67 +49,67 @@ systemctl --user daemon-reload
 systemctl --user enable --now letsnote-wheelpad.service
 ```
 
-## Configuration
+## 配置
 
-Configuration lives in `~/.config/letsnote-wheelpad/config.toml`. All keys are optional; defaults match the Windows out-of-box behaviour.
+配置文件位于 `~/.config/letsnote-wheelpad/config.toml`。所有键都是可选的；默认值与 Windows 开箱行为一致。
 
 ```toml
-# Auto-detected by name regex. Override only if you have a non-standard pad.
+# 按名称正则自动检测。仅当触摸板非标准时才需要覆盖。
 # device = "/dev/input/event4"
 # device_name_regex = "Synaptics.*TM3562"
 
 [scroll]
-enable               = true   # master enable
-reverse_vertical     = false  # flip vertical scroll direction
-horizontal_enable    = false  # enable bottom-edge horizontal-scroll wedge
+enable               = true   # 总开关
+reverse_vertical     = false  # 翻转垂直滚动方向
+horizontal_enable    = false  # 启用底部边缘水平滚动扇区
 reverse_horizontal   = false
-sensitivity          = 0      # -2..+2 ; lower = less sensitive
-detect_area_width    = 0      # 0..10 ; 0 = outer ring only, 10 = whole pad
-horizontal_start     = 2      # arc start in π/8 units (2 → 45°)
-horizontal_end       = 6      # arc end in π/8 units (6 → 135°)
+sensitivity          = 0      # -2..+2 ；越小越不灵敏
+detect_area_width    = 0      # 0..10 ；0 = 仅外圈，10 = 整个触摸板
+horizontal_start     = 2      # 弧起点，单位 π/8（2 → 45°）
+horizontal_end       = 6      # 弧终点，单位 π/8（6 → 135°）
 
 [log]
 level = "info"  # trace | debug | info | warn | error
 ```
 
-| Key | Default | Range | Notes |
+| 键 | 默认值 | 范围 | 说明 |
 | --- | --- | --- | --- |
-| `scroll.enable` | `true` | bool | Disable to keep the daemon alive but suppress all scroll. |
-| `scroll.reverse_vertical` | `false` | bool | "Natural" scroll = `true`. |
-| `scroll.horizontal_enable` | `false` | bool | Off by default; same as Windows. |
+| `scroll.enable` | `true` | bool | 关闭后守护进程保持运行，但不再产生任何滚动。 |
+| `scroll.reverse_vertical` | `false` | bool | 「自然」滚动 = `true`。 |
+| `scroll.horizontal_enable` | `false` | bool | 默认关闭；与 Windows 一致。 |
 | `scroll.reverse_horizontal` | `false` | bool | |
-| `scroll.sensitivity` | `0` | -2..+2 | Indexes the multiplier table `[10, 14, 20, 28, 40]`. |
-| `scroll.detect_area_width` | `0` | 0..10 | `0` = require finger near the edge; `10` = whole pad. |
-| `scroll.horizontal_start` | `2` | 0..15 | π/8 units. Default 45° → 135° = the bottom edge of the pad. |
+| `scroll.sensitivity` | `0` | -2..+2 | 索引倍率表 `[10, 14, 20, 28, 40]`。 |
+| `scroll.detect_area_width` | `0` | 0..10 | `0` = 要求手指靠近边缘；`10` = 整个触摸板。 |
+| `scroll.horizontal_start` | `2` | 0..15 | 单位 π/8。默认 45° → 135° = 触摸板底边。 |
 | `scroll.horizontal_end` | `6` | 0..15 | |
 
-### View logs
+### 查看日志
 
 ```sh
 journalctl --user -u letsnote-wheelpad -f
 ```
 
-If scrolling feels too fast or too slow, adjust `scroll.sensitivity` in the config (-2..+2). The daemon accumulates chord-angle deltas incrementally, so a stationary finger produces no scroll and tick count tracks the actual arc swept (see DECISIONS.md D-021-followup).
+如果觉得滚动太快或太慢，可在配置中调整 `scroll.sensitivity`（-2..+2）。守护进程以增量方式累积弦角增量，因此手指静止时不会滚动，滚动量与实际扫过的弧度成正比（参见 DECISIONS.md D-021-followup）。
 
-## Known issues / non-goals
+## 已知问题 / 非目标
 
-- **`WheelUnderCursor` is not configurable.** On Wayland the compositor routes input to the focused surface; there's no userland override.
-- **Only the Synaptics TM3562-3 family is tested.** Other touchpads may work with `device_name_regex` overrides, but no compatibility promises.
-- **Excel arrow-key fallback is gone.** Modern Excel routes horizontal wheel events natively; we don't need the Windows hack.
-- **No coasting/kinetic scrolling.** Matches the Windows WheelPad behaviour; xf86 has it but we don't.
+- **`WheelUnderCursor` 不可配置。** 在 Wayland 上，合成器将输入路由到焦点表面；没有用户态覆盖的办法。
+- **仅测试过 Synaptics TM3562-3 系列。** 其他触摸板可能通过 `device_name_regex` 覆盖使用，但不作兼容性承诺。
+- **Excel 方向键回退已移除。** 现代 Excel 原生支持水平滚轮事件；不再需要 Windows 的 hack。
+- **无惯性/动能滚动。** 与 Windows WheelPad 行为一致；xf86 有但这里没有。
 
-## How it works (one-paragraph version)
+## 工作原理（一段话版）
 
-The daemon takes exclusive ownership of the physical touchpad at startup (`EVIOCGRAB`, held forever) and creates two virtual `uinput` devices that libinput attaches to instead: a touchpad mirror (same capabilities as the physical pad) and a wheel. All physical touch events are forwarded verbatim to the virtual touchpad — so cursor, taps, clicks, and multi-finger gestures keep working exactly as before. When a 6-state FSM (`Idle → Contact → Moving → Scrolling → Debounce`) decides a finger is drawing a circle in the outer ring, we **suppress** the forwarding for that gesture's duration (cursor freezes, as desired) and integrate chord-direction angles into an accumulator. Each ±π crossing emits one wheel notch on the virtual wheel. When the finger lifts, we forward the lift event (with position stripped) so libinput sees a clean end-of-gesture without a synthetic cursor jump.
+守护进程在启动时独占物理触摸板（`EVIOCGRAB`，一直持有），并创建两个 `uinput` 虚拟设备供 libinput 接管：一个触摸板镜像（与物理触摸板能力相同）和一个滚轮。所有物理触摸事件原样转发到虚拟触摸板——因此光标、点按、点击和多指手势照常工作。当 6 状态 FSM（`Idle → Contact → Moving → Scrolling → Debounce`）判定手指在外圈画圆时，我们在该手势期间**抑制**转发（光标按预期冻结），并把弦方向角度积分进累加器。每次越过 ±π 就在虚拟滚轮上发出一个滚轮刻度。手指抬起时，我们转发抬起事件（剥离位置），让 libinput 看到一个干净的手势结束，而不产生合成光标跳变。
 
-For the full algorithm details and the architectural pivot history — see `DECISIONS.md` (D-022 is the passthrough decision; D-008..D-021 are the algorithm choices) and the analysis docs alongside the source.
+完整的算法细节和架构演变历史——参见 `DECISIONS.md`（D-022 是透传决策；D-008..D-021 是算法选择）以及源码旁的分析文档。
 
-## License
+## 许可证
 
-MIT. See [LICENSE](LICENSE).
+MIT。参见 [LICENSE](LICENSE)。
 
-## Acknowledgements
+## 致谢
 
-- Panasonic for the original WheelPad design, which this ports.
-- The X.Org `xf86-input-synaptics` project for the angle-of-point-about-a-center reference implementation we compared against during reverse engineering.
-- Peter Hutterer for the [2015 libinput discussion](https://gitlab.freedesktop.org/libinput/libinput/-/issues/) that explained why this had to be a daemon and not a libinput patch.
+- Panasonic 提供了本项目所移植的原始 WheelPad 设计。
+- X.Org `xf86-input-synaptics` 项目提供了逆向工程时对照的「绕中心点角度」参考实现。
+- Peter Hutterer 的 [2015 libinput 讨论](https://gitlab.freedesktop.org/libinput/libinput/-/issues/) 解释了为什么这必须是一个守护进程而不是 libinput 补丁。
