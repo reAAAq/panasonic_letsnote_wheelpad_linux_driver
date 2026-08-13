@@ -1,6 +1,11 @@
 // Port of FUN_140005bf0 — see analysis/RE-findings.md §6 and analysis/linux-design.md §6.
+//
+// NOTE: the accumulator is incremental. Each accepted sample advances the
+// gesture by exactly ONE new chord-direction delta; the whole-history
+// window of the original Windows port is gone. See the comment on `step`
+// for why re-summing the whole window on every frame was a
+// scrolling-correctness bug.
 
-use std::collections::VecDeque;
 use std::f64::consts::PI;
 
 const PI2: f64 = 2.0 * PI;
@@ -11,13 +16,6 @@ pub const ZONE_RADIANS: f64 = PI / 8.0;
 pub const SAMPLE_DEADBAND_SQ: i64 = 400;
 pub const SENSITIVITY_TABLE: [i32; 5] = [10, 14, 20, 28, 40];
 
-/// Fixed at 20 to match Windows WheelPad exactly (DAT_14003cbec clamp at
-/// FUN_1400046a0 lines 65-67). The earlier design (D-021) scaled this
-/// from a startup-measured packet rate; hardware testing on the CF-SV2
-/// showed that scaling subtly changed scrolling startup feel, so we
-/// revert to Windows-faithful behaviour. See DECISIONS.md D-021-followup.
-pub const HISTORY_CAPACITY: usize = 20;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TouchSample {
     pub x: i32,
@@ -25,8 +23,15 @@ pub struct TouchSample {
 }
 
 pub struct CircularDetector {
-    history: VecDeque<TouchSample>,
+    /// Last sample that passed the dead band. Used to reject sub-20-unit
+    /// jitter and to derive each chord's direction.
     last_stored: Option<TouchSample>,
+    /// Direction (atan2) of the most recent accepted chord. The next
+    /// accepted chord is compared against this to get a delta.
+    last_angle: Option<f64>,
+    /// Delta produced by the most recent `push_if_moved` call, consumed
+    /// by the next `step`. `None` means "no new movement this frame".
+    pending_delta: Option<f64>,
     accumulator: f64,
 }
 
@@ -39,103 +44,94 @@ impl Default for CircularDetector {
 impl CircularDetector {
     pub fn new() -> Self {
         Self {
-            history: VecDeque::with_capacity(HISTORY_CAPACITY),
             last_stored: None,
+            last_angle: None,
+            pending_delta: None,
             accumulator: 0.0,
         }
     }
 
     pub fn on_gesture_start(&mut self) {
-        self.history.clear();
         self.last_stored = None;
+        self.last_angle = None;
+        self.pending_delta = None;
         self.accumulator = 0.0;
     }
 
-    /// Mirrors FUN_1400046a0 line 62. The 20-unit dead band is computed
-    /// against the **previously stored sample**, not the engagement-start
-    /// point — this is one of the verified corrections.
+    /// Record a new sample if it moved past the 20-unit dead band. On
+    /// success, compute the chord-direction delta vs. the previous chord
+    /// and stash it in `pending_delta` for the next `step`.
+    ///
+    /// This is the incremental replacement for the old whole-history
+    /// window: each accepted sample contributes at most ONE delta, and a
+    /// stationary finger contributes nothing — so a finger resting on
+    /// the pad can no longer keep scrolling from stale history.
     pub fn push_if_moved(&mut self, s: TouchSample) {
-        if let Some(prev) = self.last_stored {
-            let dx = (s.x - prev.x) as i64;
-            let dy = (s.y - prev.y) as i64;
-            if dx * dx + dy * dy <= SAMPLE_DEADBAND_SQ {
-                return;
-            }
+        let Some(prev) = self.last_stored else {
+            self.last_stored = Some(s);
+            return;
+        };
+        let dx = (s.x - prev.x) as i64;
+        let dy = (s.y - prev.y) as i64;
+        if dx * dx + dy * dy <= SAMPLE_DEADBAND_SQ {
+            return;
         }
         self.last_stored = Some(s);
-        if self.history.len() == HISTORY_CAPACITY {
-            self.history.pop_back();
-        }
-        self.history.push_front(s);
+
+        let angle = (dy as f64).atan2(dx as f64);
+        let delta = match self.last_angle {
+            Some(prev_angle) => wrap_angle(angle - prev_angle),
+            None => 0.0,
+        };
+        self.last_angle = Some(angle);
+        self.pending_delta = Some(delta);
     }
 
-    /// FUN_140005bf0 ported with all seven verification-pass corrections
-    /// plus the deliberate while-loop drain (D-006). The return value is
-    /// the signed wheel-tick count: positive accumulator overflow returns
-    /// negative ticks, mirroring the Windows internal sign convention.
-    /// The user-facing reverse flip is applied later, in uinput.rs.
+    /// Consume the pending delta, apply the noise gate and sensitivity
+    /// weighting, accumulate, then drain whole ±2π crossings as ticks.
+    ///
+    /// Why incremental instead of the Windows whole-window mean?
+    /// The original port re-summed the *entire* history window on every
+    /// `step` call and added `sensitivity * mean(delta)` to the
+    /// accumulator each time. A finger that stopped drawing still left
+    /// the last circle's angles in the window, so every subsequent
+    /// SYN_REPORT kept re-adding that stale mean and kept emitting ticks
+    /// long after the gesture was over. Incremental accumulation fixes
+    /// that: no new movement, no new delta, no ticks.
     pub fn step(&mut self, scroll_speed_adjust: i32) -> i32 {
-        let n = self.history.len();
-        if n < 3 {
-            return 0;
-        }
-
-        // 1. Per-pair motion-vector angles.
-        let mut a = Vec::with_capacity(n - 1);
-        for i in 0..n - 1 {
-            let dx = (self.history[i].x - self.history[i + 1].x) as f64;
-            let dy = (self.history[i].y - self.history[i + 1].y) as f64;
-            a.push(dy.atan2(dx));
-        }
-
-        // 2. Pairwise differences with ±2π wrap and history-truncating
-        //    π/4 reject (FUN_140005bf0 lines 80-92).
-        let mut sum = 0.0;
-        let mut valid = a.len() - 1;
-        for i in 0..a.len() - 1 {
-            let mut d = a[i] - a[i + 1];
-            if d > PI {
-                d -= PI2;
+        if let Some(d) = self.pending_delta.take() {
+            if d.abs() <= NOISE_REJECT_ANGLE {
+                let idx = (scroll_speed_adjust.clamp(-2, 2) + 2) as usize;
+                let sensitivity = SENSITIVITY_TABLE[idx] as f64;
+                self.accumulator += sensitivity * d;
             }
-            if d < -PI {
-                d += PI2;
-            }
-            if d.abs() > NOISE_REJECT_ANGLE {
-                valid = i;
-                break;
-            }
-            sum += d;
-        }
-        if valid < 3 {
-            return 0;
+            // If |d| > π/4 we treat it as noise and drop the delta.
+            // `last_angle` has already been advanced so a genuine
+            // direction change (e.g. reversing the circle) re-baselines
+            // cleanly instead of being rejected forever.
         }
 
-        // 3. Sensitivity-table-weighted mean accumulates into the global.
-        let idx = (scroll_speed_adjust.clamp(-2, 2) + 2) as usize;
-        let sensitivity = SENSITIVITY_TABLE[idx] as f64;
-        self.accumulator += sensitivity * (sum / valid as f64);
-
-        // 4. WHILE-LOOP DRAIN — Linux deviation from Windows. See
-        //    DECISIONS.md D-006. Windows FUN_140005bf0 (lines 113-136) is
-        //    a single-pass branch that emits at most one tick per packet
-        //    and silently loses angle on fast sweeps; we drain fully so
-        //    that arbitrarily fast circles still scroll the proportional
-        //    amount.
+        // WHILE-LOOP DRAIN — Linux deviation from Windows. See
+        // DECISIONS.md D-006. Windows FUN_140005bf0 (lines 113-136) is
+        // a single-pass branch that emits at most one tick per packet
+        // and silently loses angle on fast sweeps; we drain fully so
+        // that arbitrarily fast circles still scroll the proportional
+        // amount.
         //
-        //    Sign convention preserved from Windows: positive accumulator
-        //    overflow yields a tick value of -1. The user-visible
-        //    `WheelReverse` flip is applied at the emit layer
-        //    (uinput.rs), not here. A clockwise gesture (which integrates
-        //    positive in screen-Y-down coords) therefore returns negative
-        //    ticks; passing the value through to uinput unchanged scrolls
-        //    the page DOWN, matching Windows.
+        // Sign convention preserved from Windows: positive accumulator
+        // overflow yields a tick value of -1. The user-visible
+        // `WheelReverse` flip is applied at the emit layer
+        // (uinput.rs), not here. A clockwise gesture (which integrates
+        // positive in screen-Y-down coords) therefore returns negative
+        // ticks; passing the value through to uinput unchanged scrolls
+        // the page DOWN, matching Windows.
         //
-        //    Known quirk preserved as a comment for archaeology:
-        //    FUN_140005bf0 line 120 contains a defensive clamp that snaps
-        //    the accumulator to -π after the +2π correction rather than
-        //    to 0. Our while-loop makes the clamp unreachable, but the
-        //    note remains so future readers don't think the quirk was
-        //    overlooked.
+        // Known quirk preserved as a comment for archaeology:
+        // FUN_140005bf0 line 120 contains a defensive clamp that snaps
+        // the accumulator to -π after the +2π correction rather than
+        // to 0. Our while-loop makes the clamp unreachable, but the
+        // note remains so future readers don't think the quirk was
+        // overlooked.
         let mut ticks: i32 = 0;
         while self.accumulator > PI {
             self.accumulator -= PI2;
@@ -152,6 +148,18 @@ impl CircularDetector {
     #[doc(hidden)]
     pub fn set_accumulator_for_test(&mut self, v: f64) {
         self.accumulator = v;
+    }
+}
+
+/// Symmetric ±2π wrap into [-π, π]. Safe for chord-angle deltas because
+/// `angle - prev_angle` is always within ±2π.
+fn wrap_angle(d: f64) -> f64 {
+    if d > PI {
+        d - PI2
+    } else if d < -PI {
+        d + PI2
+    } else {
+        d
     }
 }
 

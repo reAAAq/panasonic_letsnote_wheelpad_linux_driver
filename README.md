@@ -89,7 +89,7 @@ level = "info"  # trace | debug | info | warn | error
 journalctl --user -u letsnote-wheelpad -f
 ```
 
-If scrolling feels too fast or too slow, adjust `scroll.sensitivity` in the config (-2..+2). The daemon does not auto-calibrate — history capacity is fixed at 20 slots to match Windows exactly (see DECISIONS.md D-021-followup).
+If scrolling feels too fast or too slow, adjust `scroll.sensitivity` in the config (-2..+2). The daemon accumulates chord-angle deltas incrementally, so a stationary finger produces no scroll and tick count tracks the actual arc swept (see DECISIONS.md D-021-followup).
 
 ## Known issues / non-goals
 

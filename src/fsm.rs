@@ -98,9 +98,9 @@ impl Fsm {
                     // Outside dead zone → MOVING. Capture engage_start
                     // here, matching DAT_14003cc18 being set at
                     // FUN_1400046a0 line 203 only on the state 1 → state 3
-                    // transition. The detector's accumulator and history
-                    // are NOT reset here; that happens on the
-                    // Moving → Scrolling transition (mirroring
+                    // transition. The detector's accumulator and chord
+                    // direction state are NOT reset here; that happens on
+                    // the Moving → Scrolling transition (mirroring
                     // FUN_1400046a0 line 151 which zeros DAT_14003cb00).
                     self.state = FsmState::Moving { engage_start: s };
                 } else {
@@ -194,11 +194,11 @@ impl Fsm {
     }
 
     /// Reset state to Idle and clear the detector's accumulator and
-    /// history. Used by the watchdog when Scrolling has persisted
-    /// without packet progress; restoring Idle resumes touchpad
+    /// chord-direction state. Used by the watchdog when Scrolling has
+    /// persisted without packet progress; restoring Idle resumes touchpad
     /// passthrough so the cursor isn't frozen indefinitely. We reset
     /// the detector too so a fresh gesture after the watchdog kick
-    /// doesn't start from a stale half-filled history.
+    /// doesn't start from a stale direction baseline.
     pub fn force_idle(&mut self, detector: &mut CircularDetector) {
         self.state = FsmState::Idle;
         detector.on_gesture_start();

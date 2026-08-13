@@ -102,8 +102,9 @@ fn run(args: Args) -> Result<()> {
         warn!("sd_notify Ready failed (acceptable outside systemd): {e}");
     }
 
-    // 6. Build the algorithm and FSM. History capacity is fixed at 20
-    //    to match Windows WheelPad exactly (D-021-followup).
+    // 6. Build the algorithm and FSM. The detector accumulates
+    //    chord-angle deltas incrementally; sensitivity follows the
+    //    Windows WheelPad table (D-021-followup).
     let mut detector = CircularDetector::new();
     let mut fsm = Fsm::new(input.center_x, input.center_y);
 

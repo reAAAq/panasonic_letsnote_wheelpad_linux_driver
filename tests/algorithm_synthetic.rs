@@ -82,9 +82,8 @@ fn straight_line_produces_zero_ticks() {
 
 #[test]
 fn zig_zag_does_not_engage() {
-    // Alternating sign deltas larger than π/4 → per-delta π/4 reject
-    // truncates history below 3 valid deltas, so step returns 0
-    // every packet.
+    // Alternating direction deltas larger than π/4 → each per-step delta
+    // is rejected by the noise gate, so step returns 0 every packet.
     let zigs: Vec<TouchSample> = [
         (100, 100),
         (130, 200),
@@ -134,7 +133,7 @@ fn reverse_circle_has_opposite_sign() {
 
 #[test]
 fn sign_convention_positive_overflow_yields_negative_tick() {
-    // Populate history, then manually push the accumulator past +π and
+    // Feed a few samples, then manually push the accumulator past +π and
     // verify a subsequent step drains negative. This sidesteps any
     // dependence on real gesture geometry; it directly exercises the
     // emit branch.
@@ -237,4 +236,46 @@ fn horizontal_arc_wraparound() {
     assert!(within_horizontal_arc(500, 500, east, 14, 2));
     assert!(within_horizontal_arc(500, 500, southeast, 14, 2));
     assert!(!within_horizontal_arc(500, 500, southwest, 14, 2));
+}
+
+#[test]
+fn stationary_finger_after_arc_emits_no_more_ticks() {
+    // Regression: the old whole-history re-summation kept re-adding the
+    // stale window mean on every step, so a finger resting after drawing
+    // an arc kept scrolling. Incremental accumulation must emit nothing
+    // once movement stops — step with no pending delta must return 0.
+    let mut d = CircularDetector::new();
+    d.on_gesture_start();
+    let cx = 500.0_f64;
+    let cy = 500.0_f64;
+    let r = 200.0_f64;
+    for i in 0..=10 {
+        let t = i as f64 / 10.0 * (PI / 2.0);
+        let s = TouchSample {
+            x: (cx + r * t.cos()).round() as i32,
+            y: (cy + r * t.sin()).round() as i32,
+        };
+        d.push_if_moved(s);
+        let _ = d.step(0);
+    }
+    // Finger stationary: no new samples, so every step must be zero.
+    for _ in 0..30 {
+        assert_eq!(d.step(0), 0, "stationary finger must not scroll");
+    }
+}
+
+#[test]
+fn quarter_arc_is_not_amplified_beyond_full_circle() {
+    // A 90° arc should be roughly 1/4 of a full turn's ticks — the old
+    // window re-summation inflated short arcs because the stale window
+    // kept contributing. With incremental accumulation the two must
+    // track actual swept angle.
+    let full = run_gesture(&circle_samples(500, 500, 200.0, 0.0, 2.0 * PI, 40), 0);
+    let quarter = run_gesture(&circle_samples(500, 500, 200.0, 0.0, PI / 2.0, 10), 0);
+    assert!(full < 0 && quarter < 0);
+    assert!(quarter.abs() >= 1);
+    assert!(
+        quarter.abs() * 3 <= full.abs() + 2,
+        "quarter arc ({quarter}) should be ~1/4 of full ({full})"
+    );
 }
