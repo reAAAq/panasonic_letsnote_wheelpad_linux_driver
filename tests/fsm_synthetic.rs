@@ -235,3 +235,58 @@ fn disabled_scroll_holds_idle() {
     );
     assert!(matches!(fsm.state(), FsmState::Idle));
 }
+
+#[test]
+fn scrolling_exits_to_moving_on_stationary_finger() {
+    // A finger that stops moving while Scrolling must drop back to
+    // Moving so the passthrough runtime resumes forwarding and the
+    // cursor unfreezes — instead of waiting for a lift or the 5 s
+    // watchdog.
+    let mut fsm = Fsm::new(500, 500);
+    let mut det = CircularDetector::new();
+    let scroll = default_scroll();
+
+    let start = touch(720, 500);
+    let theta = PI / 8.0;
+    let mid = touch(
+        500 + (220.0 * theta.cos()).round() as i32,
+        500 + (220.0 * theta.sin()).round() as i32,
+    );
+    drive(&mut fsm, &mut det, &scroll, &[start, mid]);
+    assert!(matches!(fsm.state(), FsmState::Scrolling));
+
+    // Finger rests at `mid`: after the stationary threshold it must
+    // drop back to Moving.
+    drive(&mut fsm, &mut det, &scroll, &vec![mid; 40]);
+    assert!(
+        matches!(fsm.state(), FsmState::Moving { .. }),
+        "expected Moving after stationary finger, got {:?}",
+        fsm.state()
+    );
+}
+
+#[test]
+fn stationary_exit_does_not_trip_during_continuous_circle() {
+    // Guard: a continuous circle moves every frame well past the dead
+    // band, so the stationary counter must never reach the exit
+    // threshold and the gesture must stay Scrolling throughout.
+    let mut fsm = Fsm::new(500, 500);
+    let mut det = CircularDetector::new();
+    let scroll = default_scroll();
+
+    let start = touch(720, 500); // 0°
+    let mut frames = vec![start];
+    for i in 1..=72 {
+        let t = i as f64 * (PI / 18.0); // 10° per step
+        frames.push(touch(
+            500 + (220.0 * t.cos()).round() as i32,
+            500 + (220.0 * t.sin()).round() as i32,
+        ));
+    }
+    drive(&mut fsm, &mut det, &scroll, &frames);
+    assert!(
+        matches!(fsm.state(), FsmState::Scrolling),
+        "continuous circle must stay Scrolling, got {:?}",
+        fsm.state()
+    );
+}

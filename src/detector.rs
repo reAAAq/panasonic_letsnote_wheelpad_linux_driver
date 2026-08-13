@@ -60,21 +60,23 @@ impl CircularDetector {
 
     /// Record a new sample if it moved past the 20-unit dead band. On
     /// success, compute the chord-direction delta vs. the previous chord
-    /// and stash it in `pending_delta` for the next `step`.
+    /// and stash it in `pending_delta` for the next `step`. Returns
+    /// `true` if the sample was accepted (finger moved past the dead
+    /// band), `false` if it was rejected (finger stationary this frame).
     ///
     /// This is the incremental replacement for the old whole-history
     /// window: each accepted sample contributes at most ONE delta, and a
     /// stationary finger contributes nothing — so a finger resting on
     /// the pad can no longer keep scrolling from stale history.
-    pub fn push_if_moved(&mut self, s: TouchSample) {
+    pub fn push_if_moved(&mut self, s: TouchSample) -> bool {
         let Some(prev) = self.last_stored else {
             self.last_stored = Some(s);
-            return;
+            return true;
         };
         let dx = (s.x - prev.x) as i64;
         let dy = (s.y - prev.y) as i64;
         if dx * dx + dy * dy <= SAMPLE_DEADBAND_SQ {
-            return;
+            return false;
         }
         self.last_stored = Some(s);
 
@@ -85,6 +87,7 @@ impl CircularDetector {
         };
         self.last_angle = Some(angle);
         self.pending_delta = Some(delta);
+        true
     }
 
     /// Consume the pending delta, apply the noise gate and sensitivity

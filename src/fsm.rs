@@ -7,6 +7,13 @@ use crate::detector::{
     TRIGGER_ANGLE,
 };
 
+/// Consecutive Scrolling frames in which the finger stayed inside the
+/// detector's dead band before we drop back to Moving. At ~100 Hz this
+/// is roughly 250 ms — long enough to never trip during a slow circle
+/// (the dead band re-accepts a sample every few frames there), short
+/// enough that a resting finger unfreezes the cursor almost immediately.
+const STATIONARY_EXIT_FRAMES: u32 = 25;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FsmState {
     Idle,
@@ -51,6 +58,10 @@ pub struct Fsm {
     state: FsmState,
     center_x: i32,
     center_y: i32,
+    /// Consecutive Scrolling frames in which the finger stayed inside the
+    /// dead band. Exceeding [`STATIONARY_EXIT_FRAMES`] drops us back to
+    /// Moving so the cursor unfreezes without waiting for a lift.
+    stationary_frames: u32,
 }
 
 impl Fsm {
@@ -59,6 +70,7 @@ impl Fsm {
             state: FsmState::Idle,
             center_x,
             center_y,
+            stationary_frames: 0,
         }
     }
 
@@ -144,6 +156,7 @@ impl Fsm {
                         // The physical pad is already grabbed (forever);
                         // forwarding suppression is keyed off state.
                         detector.on_gesture_start();
+                        self.stationary_frames = 0;
                         self.state = FsmState::Scrolling;
                         // Feed the engaging sample so the first tick can
                         // emit on this very frame if the gesture is fast
@@ -172,10 +185,25 @@ impl Fsm {
                 Action::None
             }
             (FsmState::Scrolling, true, Some(s)) => {
-                detector.push_if_moved(s);
+                if detector.push_if_moved(s) {
+                    self.stationary_frames = 0;
+                } else {
+                    self.stationary_frames += 1;
+                }
                 let ticks = detector.step(scroll.sensitivity);
                 if ticks != 0 {
                     emit(ticks, scroll, self.center_x, self.center_y, s)
+                } else if self.stationary_frames >= STATIONARY_EXIT_FRAMES {
+                    // Finger has been stationary while Scrolling — drop
+                    // back to Moving so the passthrough runtime resumes
+                    // forwarding and the cursor unfreezes, without waiting
+                    // for a lift or the 5 s watchdog. Re-arm engage_start
+                    // at the current position so a resumed circle
+                    // re-triggers Scrolling normally.
+                    detector.on_gesture_start();
+                    self.stationary_frames = 0;
+                    self.state = FsmState::Moving { engage_start: s };
+                    Action::None
                 } else {
                     Action::None
                 }
@@ -201,6 +229,7 @@ impl Fsm {
     /// doesn't start from a stale direction baseline.
     pub fn force_idle(&mut self, detector: &mut CircularDetector) {
         self.state = FsmState::Idle;
+        self.stationary_frames = 0;
         detector.on_gesture_start();
     }
 }
